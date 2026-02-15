@@ -9,6 +9,7 @@ const resultsSection = document.getElementById("resultsSection");
 const profileSection = document.getElementById("profileSection");
 const savedSection = document.getElementById("savedSection");
 const batchSection = document.getElementById("batchSection");
+const rankSection = document.getElementById("rankSection");
 const searchInput = document.getElementById("searchInput");
 const searchBtn = document.getElementById("searchBtn");
 const resultsList = document.getElementById("resultsList");
@@ -27,6 +28,7 @@ const fingerprintSection = document.getElementById("fingerprintSection");
 const fingerprintLoading = document.getElementById("fingerprintLoading");
 const fingerprintChart = document.getElementById("fingerprintChart");
 const downloadPdfBtn = document.getElementById("downloadPdfBtn");
+const backToResults = document.getElementById("backToResults");
 const summaryModal = document.getElementById("summaryModal");
 const summaryModalClose = document.getElementById("summaryModalClose");
 const summaryModalLoading = document.getElementById("summaryModalLoading");
@@ -42,6 +44,16 @@ const csvFileInput = document.getElementById("csvFileInput");
 const csvPickBtn = document.getElementById("csvPickBtn");
 const dashboardStats = document.getElementById("dashboardStats");
 const statsGrid = document.getElementById("statsGrid");
+const rankTopicInput = document.getElementById("rankTopicInput");
+const rankSearchBtn = document.getElementById("rankSearchBtn");
+const rankResults = document.getElementById("rankResults");
+const rankPapersList = document.getElementById("rankPapersList");
+const rankLoading = document.getElementById("rankLoading");
+const rankEmptyState = document.getElementById("rankEmptyState");
+const rankResultsTitle = document.getElementById("rankResultsTitle");
+const rankStats = document.getElementById("rankStats");
+const rankYearFrom = document.getElementById("rankYearFrom");
+const rankYearTo = document.getElementById("rankYearTo");
 
 let currentChatWorkId = null;
 
@@ -160,6 +172,7 @@ function showSearch() {
   savedSection.classList.add("hidden");
   batchSection.classList.add("hidden");
   dashboardSection.classList.add("hidden");
+  rankSection.classList.add("hidden");
   searchInput.value = "";
   searchInput.focus();
 }
@@ -171,6 +184,7 @@ function showResults() {
   savedSection.classList.add("hidden");
   batchSection.classList.add("hidden");
   dashboardSection.classList.add("hidden");
+  rankSection.classList.add("hidden");
 }
 
 function showProfile() {
@@ -180,6 +194,16 @@ function showProfile() {
   savedSection.classList.add("hidden");
   batchSection.classList.add("hidden");
   dashboardSection.classList.add("hidden");
+  rankSection.classList.add("hidden");
+}
+
+function goBackToResults() {
+  // Go back to results without clearing them
+  if (resultsList.children.length > 0) {
+    showResults();
+  } else {
+    showSearch();
+  }
 }
 
 function showSaved() {
@@ -189,6 +213,7 @@ function showSaved() {
   savedSection.classList.remove("hidden");
   batchSection.classList.add("hidden");
   dashboardSection.classList.add("hidden");
+  rankSection.classList.add("hidden");
   renderSavedContent();
 }
 
@@ -199,6 +224,7 @@ function showCompareTab() {
   savedSection.classList.add("hidden");
   batchSection.classList.add("hidden");
   dashboardSection.classList.add("hidden");
+  rankSection.classList.add("hidden");
   openCompareModal();
 }
 
@@ -209,6 +235,7 @@ function showBatch() {
   savedSection.classList.add("hidden");
   batchSection.classList.remove("hidden");
   dashboardSection.classList.add("hidden");
+  rankSection.classList.add("hidden");
 }
 
 function showDashboard() {
@@ -218,6 +245,19 @@ function showDashboard() {
   savedSection.classList.add("hidden");
   batchSection.classList.add("hidden");
   dashboardSection.classList.remove("hidden");
+  rankSection.classList.add("hidden");
+}
+
+function showRank() {
+  searchSection.classList.add("hidden");
+  resultsSection.classList.add("hidden");
+  profileSection.classList.add("hidden");
+  savedSection.classList.add("hidden");
+  batchSection.classList.add("hidden");
+  dashboardSection.classList.add("hidden");
+  rankSection.classList.remove("hidden");
+  rankTopicInput.value = "";
+  rankTopicInput.focus();
 }
 
 function setLoading(listEl, loadingEl, show) {
@@ -365,21 +405,60 @@ async function doSearch() {
       emptyState.classList.remove("hidden");
       return;
     }
+    
+    // Show source indicator
+    if (data.source) {
+      const sourceIndicator = document.createElement("div");
+      sourceIndicator.className = "search-source-indicator";
+      sourceIndicator.textContent = `Results from ${data.source}`;
+      resultsList.appendChild(sourceIndicator);
+    }
+    
     data.results.forEach((author) => {
       const card = document.createElement("div");
       card.className = "author-card-wrap";
+      
+      // Build metadata
       const meta = [
         author.works_count != null && `${author.works_count} papers`,
         author.cited_by_count != null && author.cited_by_count > 0 && `${author.cited_by_count} citations`,
         author.h_index != null && `h-index ${author.h_index}`,
+        author.i10_index != null && `i10-index ${author.i10_index}`,
         author.institution,
       ].filter(Boolean);
+      
       const saved = isAuthorSaved(author.id);
+      
+      // Build interests HTML
+      let interestsHtml = "";
+      if (author.interests && author.interests.length > 0) {
+        interestsHtml = `<div class="author-card-interests">${author.interests.slice(0, 5).map(i => `<span class="interest-tag">${escapeHtml(i)}</span>`).join("")}</div>`;
+      }
+      
+      // Build photo HTML
+      let photoHtml = "";
+      if (author.photo_url) {
+        photoHtml = `<img src="${escapeHtml(author.photo_url)}" alt="${escapeHtml(author.display_name)}" class="author-card-photo" onerror="this.style.display='none'">`;
+      } else {
+        photoHtml = `<div class="author-card-photo-placeholder">${escapeHtml(author.display_name.charAt(0).toUpperCase())}</div>`;
+      }
+      
+      // Build email HTML
+      let emailHtml = "";
+      if (author.email) {
+        emailHtml = `<div class="author-card-email">✉ ${escapeHtml(author.email)}</div>`;
+      }
+      
       card.innerHTML = `
         <button type="button" class="btn-view-profile" data-author-id="${escapeHtml(author.id)}" title="View profile">View profile</button>
         <button type="button" class="author-card" data-id="${escapeHtml(author.id)}">
-          <span class="author-card-name">${escapeHtml(author.display_name)}</span>
-          <div class="author-card-meta">${escapeHtml(meta.join(" · "))}</div>
+          ${photoHtml}
+          <div class="author-card-content">
+            <span class="author-card-name">${escapeHtml(author.display_name)}</span>
+            <div class="author-card-meta">${escapeHtml(meta.join(" · "))}</div>
+            ${emailHtml}
+            ${interestsHtml}
+          </div>
         </button>
         <button type="button" class="btn-save btn-save-author ${saved ? "saved" : ""}" data-save-author-id="${escapeHtml(author.id)}" title="${saved ? "Remove from saved" : "Save author"}">${saved ? "Saved" : "Save"}</button>
       `;
@@ -471,7 +550,17 @@ async function openProfile(authorId) {
   const yearFrom = document.getElementById("worksYearFrom")?.value || "";
   const yearTo = document.getElementById("worksYearTo")?.value || "";
   const minCit = document.getElementById("worksMinCitations")?.value || "";
-  let worksUrl = `${API_BASE}/api/author/${encodeURIComponent(authorId)}/works?page=1&per_page=${perPage}&sort_by=${sortBy}&sort_order=${sortOrder}`;
+  
+  // Check if quality ranking is selected
+  const isQualityRank = sortBy === "quality_rank";
+  
+  let worksUrl;
+  if (isQualityRank) {
+    worksUrl = `${API_BASE}/api/author/${encodeURIComponent(authorId)}/works/ranked?page=1&per_page=${perPage}`;
+  } else {
+    worksUrl = `${API_BASE}/api/author/${encodeURIComponent(authorId)}/works?page=1&per_page=${perPage}&sort_by=${sortBy}&sort_order=${sortOrder}`;
+  }
+  
   if (yearFrom) worksUrl += `&year_from=${yearFrom}`;
   if (yearTo) worksUrl += `&year_to=${yearTo}`;
   if (minCit) worksUrl += `&min_citations=${minCit}`;
@@ -498,11 +587,40 @@ async function openProfile(authorId) {
 
     const instNames = (author.last_known_institutions || []).map((i) => i.display_name).filter(Boolean);
     const authorSaved = isAuthorSaved(author.id);
+    
+    // Build profile photo HTML
+    let photoHtml = "";
+    if (author.photo_url) {
+      photoHtml = `<img src="${escapeHtml(author.photo_url)}" alt="${escapeHtml(author.display_name)}" class="profile-photo" onerror="this.style.display='none'">`;
+    }
+    
+    // Build email HTML
+    let emailHtml = "";
+    if (author.email) {
+      emailHtml = `<p class="profile-email">✉ ${escapeHtml(author.email)}</p>`;
+    }
+    
+    // Build interests HTML
+    let interestsHtml = "";
+    if (author.interests && author.interests.length > 0) {
+      interestsHtml = `
+        <div class="profile-interests">
+          <strong>Research Interests:</strong>
+          ${author.interests.map(i => `<span class="interest-tag">${escapeHtml(i)}</span>`).join("")}
+        </div>
+      `;
+    }
+    
     profileHeader.innerHTML = `
       <div class="profile-header-row">
-        <div>
-          <h2 class="profile-name">${escapeHtml(author.display_name)}</h2>
-          ${instNames.length ? `<p class="profile-institutions">${escapeHtml(instNames.join(", "))}</p>` : ""}
+        <div class="profile-header-main">
+          ${photoHtml}
+          <div class="profile-header-info">
+            <h2 class="profile-name">${escapeHtml(author.display_name)}</h2>
+            ${instNames.length ? `<p class="profile-institutions">${escapeHtml(instNames.join(", "))}</p>` : ""}
+            ${emailHtml}
+            ${interestsHtml}
+          </div>
         </div>
         <div class="profile-header-actions">
           <button type="button" class="back-btn" id="profilePrintBtn" title="Print or save as PDF">Print / Export PDF</button>
@@ -548,7 +666,7 @@ async function openProfile(authorId) {
     loadResearchFingerprint(authorId);
 
     setLoading(worksList, worksLoading, false);
-    appendWorks(worksData.results);
+    appendWorks(worksData.results, isQualityRank);
     if (worksData.results.length === 0) {
       emptyWorks.classList.remove("hidden");
     } else if (worksTotal > perPage) {
@@ -585,6 +703,7 @@ function renderExternalSources(container, data) {
     { key: "crossref", label: "CrossRef" },
     { key: "openaire", label: "OpenAIRE (grants)" },
     { key: "europe_pmc", label: "Europe PMC" },
+    { key: "google_scholar", label: "Google Scholar" },
   ];
   container.innerHTML = "";
   sources.forEach(({ key, label }) => {
@@ -599,8 +718,16 @@ function renderExternalSources(container, data) {
     } else {
       const url = raw.url || "#";
       let body = "";
-      if (raw.paper_count != null || raw.citation_count != null) {
-        body += `<p>Papers: ${raw.paper_count ?? "—"} · Citations: ${raw.citation_count ?? "—"}${raw.h_index != null ? ` · h-index: ${raw.h_index}` : ""}</p>`;
+      if (raw.paper_count != null || raw.citation_count != null || raw.citations != null || raw.publications_count != null) {
+        const papers = raw.paper_count ?? raw.publications_count ?? "—";
+        const cites = raw.citation_count ?? raw.citations ?? "—";
+        body += `<p>Papers: ${papers} · Citations: ${cites}${raw.h_index != null ? ` · h-index: ${raw.h_index}` : ""}${raw.i10_index != null ? ` · i10-index: ${raw.i10_index}` : ""}</p>`;
+      }
+      if (raw.affiliation) {
+        body += `<p class="external-source-list"><strong>Affiliation:</strong> ${escapeHtml(raw.affiliation)}</p>`;
+      }
+      if (raw.interests && raw.interests.length) {
+        body += `<p class="external-source-list"><strong>Interests:</strong> ${raw.interests.map(i => escapeHtml(i)).join(", ")}</p>`;
       }
       if (raw.employments && raw.employments.length) {
         body += "<p class=\"external-source-list\"><strong>Employment:</strong> " + raw.employments.slice(0, 3).map((e) => escapeHtml(e.organization || e.role || "")).join("; ") + "</p>";
@@ -616,6 +743,9 @@ function renderExternalSources(container, data) {
       }
       if (raw.sample_works && raw.sample_works.length) {
         body += "<ul class=\"external-source-works\">" + raw.sample_works.slice(0, 3).map((w) => "<li>" + escapeHtml(w.title || "—") + (w.year ? " (" + w.year + ")" : "") + "</li>").join("") + "</ul>";
+      }
+      if (raw.sample_publications && raw.sample_publications.length) {
+        body += "<ul class=\"external-source-works\">" + raw.sample_publications.slice(0, 3).map((w) => "<li>" + escapeHtml(w.title || "—") + (w.year ? " (" + w.year + ")" : "") + (w.citations ? ` · ${w.citations} citations` : "") + "</li>").join("") + "</ul>";
       }
       if (raw.hit_count != null && raw.sample_works && raw.sample_works.length) {
         body = "<p>Found " + raw.hit_count + " papers (sample below).</p>" + body;
@@ -638,10 +768,23 @@ async function applyWorksFilters() {
   const yearFrom = document.getElementById("worksYearFrom")?.value || "";
   const yearTo = document.getElementById("worksYearTo")?.value || "";
   const minCit = document.getElementById("worksMinCitations")?.value || "";
-  let url = `${API_BASE}/api/author/${encodeURIComponent(currentAuthorId)}/works?page=1&per_page=${perPage}&sort_by=${sortBy}&sort_order=${sortOrder}`;
+  
+  // Check if quality ranking is selected
+  const isQualityRank = sortBy === "quality_rank";
+  
+  let url;
+  if (isQualityRank) {
+    // Use ranked endpoint for quality ranking
+    url = `${API_BASE}/api/author/${encodeURIComponent(currentAuthorId)}/works/ranked?page=1&per_page=${perPage}`;
+  } else {
+    // Use regular endpoint for other sorting
+    url = `${API_BASE}/api/author/${encodeURIComponent(currentAuthorId)}/works?page=1&per_page=${perPage}&sort_by=${sortBy}&sort_order=${sortOrder}`;
+  }
+  
   if (yearFrom) url += `&year_from=${yearFrom}`;
   if (yearTo) url += `&year_to=${yearTo}`;
   if (minCit) url += `&min_citations=${minCit}`;
+  
   setLoading(worksList, worksLoading, true);
   loadMoreWrap.classList.add("hidden");
   emptyWorks.classList.add("hidden");
@@ -652,7 +795,7 @@ async function applyWorksFilters() {
     worksTotal = data.meta?.count ?? 0;
     worksList.innerHTML = "";
     setLoading(worksList, worksLoading, false);
-    appendWorks(data.results || []);
+    appendWorks(data.results || [], isQualityRank);
     if ((data.results || []).length === 0) emptyWorks.classList.remove("hidden");
     else if (worksTotal > perPage) loadMoreWrap.classList.remove("hidden");
   } catch (e) {
@@ -662,20 +805,91 @@ async function applyWorksFilters() {
   }
 }
 
-function appendWorks(works) {
+function appendWorks(works, isRanked = false) {
   works.forEach((w) => {
     const meta = [w.publication_year, w.venue, w.cited_by_count != null && w.cited_by_count > 0 ? `${w.cited_by_count} citations` : null].filter(Boolean);
     const card = document.createElement("div");
     card.className = "work-card";
     const workSaved = isWorkSaved(w.id);
+    
+    // Build rank badge if this is a ranked result
+    let rankBadgeHtml = "";
+    if (isRanked && w.rank) {
+      rankBadgeHtml = `<div class="rank-badge-small">#${w.rank}</div>`;
+    }
+    
+    // Build integrity badge if available
+    let integrityBadgeHtml = "";
+    if (isRanked && w.integrity) {
+      const riskLevel = w.integrity.risk_level || "MEDIUM";
+      integrityBadgeHtml = `<span class="integrity-badge integrity-${riskLevel.toLowerCase()}">${riskLevel}</span>`;
+    }
+    
+    // Build quality score if available
+    let qualityScoreHtml = "";
+    if (isRanked && w.final_score != null) {
+      qualityScoreHtml = `
+        <div class="work-quality-score">
+          <span class="quality-score-value">${w.final_score.toFixed(1)}</span>
+          <span class="quality-score-label">Quality</span>
+        </div>
+      `;
+    }
+    
+    // Build authors display
+    let authorsHtml = "";
+    if (w.authors && w.authors.length > 0) {
+      const authorsList = w.authors.slice(0, 3).join(", ") + (w.authors.length > 3 ? " et al." : "");
+      authorsHtml = `<div class="work-authors">${escapeHtml(authorsList)}</div>`;
+    }
+    
+    // Build rank explanation if available
+    let rankExplanationHtml = "";
+    if (isRanked && w.rank_explanation) {
+      rankExplanationHtml = `
+        <div class="work-rank-explanation">
+          <strong>Why this rank:</strong> ${escapeHtml(w.rank_explanation)}
+        </div>
+      `;
+    }
+    
+    // Build integrity flags if available
+    let integrityFlagsHtml = "";
+    if (isRanked && w.integrity && w.integrity.flags && w.integrity.flags.length > 0) {
+      integrityFlagsHtml = `
+        <div class="work-integrity-flags">
+          <strong>⚠️ Issues:</strong> ${escapeHtml(w.integrity.flags.join(", "))}
+        </div>
+      `;
+    }
+    
+    // Build LLM scores if available
+    let llmScoresHtml = "";
+    if (isRanked && w.llm && w.llm.quality_score != null) {
+      llmScoresHtml = `
+        <div class="work-llm-scores">
+          <span class="work-llm-score">Quality: ${w.llm.quality_score}/10</span>
+          <span class="work-llm-score">Credibility: ${w.llm.credibility_score}/10</span>
+          <span class="work-llm-score">Relevance: ${w.llm.relevance_score}/10</span>
+        </div>
+      `;
+    }
+    
     card.innerHTML = `
+      ${rankBadgeHtml}
+      ${qualityScoreHtml}
       <h4 class="work-title" title="${escapeHtml(w.title || "Untitled")}">${escapeHtml(w.title || "Untitled")}</h4>
+      ${authorsHtml}
       <div class="work-meta">
         ${w.publication_year ? `<span class="work-year">${escapeHtml(String(w.publication_year))}</span>` : ""}
         ${w.venue ? `<span class="work-venue">${escapeHtml(w.venue)}</span>` : ""}
         ${w.cited_by_count > 0 ? `<span class="work-citations">${w.cited_by_count} cited</span>` : ""}
+        ${integrityBadgeHtml}
       </div>
       ${w.doi ? `<div class="work-doi"><a href="https://doi.org/${w.doi.replace(/^https?:\/\/doi\.org\//i, "")}" target="_blank" rel="noopener">${escapeHtml(w.doi)}</a></div>` : ""}
+      ${rankExplanationHtml}
+      ${integrityFlagsHtml}
+      ${llmScoresHtml}
       <div class="work-actions">
         <button type="button" class="btn-summary" data-work-id="${escapeHtml(w.id)}">Assessment Summary</button>
         <button type="button" class="btn-save btn-save-work ${workSaved ? "saved" : ""}" data-save-work-id="${escapeHtml(w.id)}" title="${workSaved ? "Remove from saved" : "Save paper"}">${workSaved ? "Saved" : "Save"}</button>
@@ -874,8 +1088,8 @@ function renderSavedContent() {
       <button type="button" class="btn-unsave" title="Remove from saved">×</button>
     `;
     item.querySelector(".saved-item-link").addEventListener("click", () => {
-      document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
-      document.querySelector(".tab-btn[data-tab='search']")?.classList.add("active");
+      document.querySelectorAll(".icon-nav-btn[data-tab]").forEach((b) => b.classList.remove("active"));
+      document.querySelector(".icon-nav-btn[data-tab='search']")?.classList.add("active");
       openProfile(author.id);
     });
     item.querySelector(".btn-unsave").addEventListener("click", () => removeSavedAuthor(author.id));
@@ -1208,9 +1422,9 @@ function closeCompareModal() {
   const modal = document.getElementById("compareModal");
   modal.classList.add("hidden");
   modal.setAttribute("aria-hidden", "true");
-  if (document.querySelector(".tab-btn[data-tab='compare']")?.classList.contains("active")) {
-    document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
-    document.querySelector(".tab-btn[data-tab='search']")?.classList.add("active");
+  if (document.querySelector(".icon-nav-btn[data-tab='compare']")?.classList.contains("active")) {
+    document.querySelectorAll(".icon-nav-btn[data-tab]").forEach((b) => b.classList.remove("active"));
+    document.querySelector(".icon-nav-btn[data-tab='search']")?.classList.add("active");
     showSearch();
   }
 }
@@ -1229,6 +1443,15 @@ document.querySelectorAll(".tab-btn").forEach((btn) => {
 });
 
 document.getElementById("worksApplyFilters").addEventListener("click", applyWorksFilters);
+
+// Rank Papers button - automatically select quality rank and apply
+document.getElementById("rankPapersBtn")?.addEventListener("click", () => {
+  const sortBySelect = document.getElementById("worksSortBy");
+  if (sortBySelect) {
+    sortBySelect.value = "quality_rank";
+    applyWorksFilters();
+  }
+});
 
 document.getElementById("exportSavedCsvBtn").addEventListener("click", () => {
   const authors = getSavedAuthors();
@@ -1558,9 +1781,10 @@ searchInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") doSearch();
 });
 backToSearch.addEventListener("click", () => {
-  document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
-  document.querySelector(".tab-btn[data-tab='search']")?.classList.add("active");
-  showSearch();
+  goBackToResults();
+});
+backToResults.addEventListener("click", () => {
+  goBackToResults();
 });
 loadMoreBtn.addEventListener("click", loadMoreWorks);
 downloadPdfBtn.addEventListener("click", downloadAccreditationPdf);
@@ -1596,8 +1820,8 @@ csvUploadArea.addEventListener("drop", (e) => {
 
 // Back button handler for dashboard
 document.getElementById("backFromDashboard")?.addEventListener("click", () => {
-  document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
-  document.querySelector(".tab-btn[data-tab='search']")?.classList.add("active");
+  document.querySelectorAll(".icon-nav-btn[data-tab]").forEach((b) => b.classList.remove("active"));
+  document.querySelector(".icon-nav-btn[data-tab='search']")?.classList.add("active");
   showSearch();
 });
 
@@ -1633,4 +1857,278 @@ document.getElementById("exportDashboardBtn")?.addEventListener("click", () => {
   ];
   
   downloadCsv("department_dashboard_report.csv", rows);
+});
+
+
+// Browser back button support
+window.addEventListener("popstate", (e) => {
+  if (e.state && e.state.view) {
+    switch (e.state.view) {
+      case "search":
+        showSearch();
+        break;
+      case "results":
+        showResults();
+        break;
+      case "profile":
+        if (e.state.authorId) {
+          openProfile(e.state.authorId);
+        }
+        break;
+      default:
+        showSearch();
+    }
+  }
+});
+
+// Update history when navigating
+const originalShowResults = showResults;
+showResults = function() {
+  originalShowResults();
+  if (window.history.state?.view !== "results") {
+    window.history.pushState({ view: "results" }, "", "#results");
+  }
+};
+
+const originalShowProfile = showProfile;
+showProfile = function() {
+  originalShowProfile();
+  if (currentAuthorId && window.history.state?.authorId !== currentAuthorId) {
+    window.history.pushState({ view: "profile", authorId: currentAuthorId }, "", `#profile/${currentAuthorId}`);
+  }
+};
+
+const originalShowSearch = showSearch;
+showSearch = function() {
+  originalShowSearch();
+  if (window.history.state?.view !== "search") {
+    window.history.pushState({ view: "search" }, "", "#search");
+  }
+};
+
+
+// ===== RANK PAPERS BY TOPIC =====
+
+async function searchPapersByTopic() {
+  const topic = rankTopicInput.value.trim();
+  if (topic.length < 2) {
+    alert("Please enter at least 2 characters");
+    return;
+  }
+
+  rankResults.classList.remove("hidden");
+  rankEmptyState.classList.add("hidden");
+  rankPapersList.innerHTML = "";
+  rankLoading.classList.remove("hidden");
+  rankResultsTitle.textContent = `Searching for "${topic}"...`;
+  rankStats.textContent = "";
+
+  const enableLlm = true; // Always enable AI evaluation
+  const yearFrom = rankYearFrom.value;
+  const yearTo = rankYearTo.value;
+
+  try {
+    const params = new URLSearchParams({
+      topic: topic,
+      per_page: 25,
+      enable_llm: enableLlm
+    });
+    
+    if (yearFrom) params.append("year_from", yearFrom);
+    if (yearTo) params.append("year_to", yearTo);
+
+    const response = await fetch(`${API_BASE}/api/search/papers?${params}`);
+    if (!response.ok) throw new Error("Search failed");
+    
+    const data = await response.json();
+    rankLoading.classList.add("hidden");
+
+    if (!data.results || data.results.length === 0) {
+      rankResults.classList.add("hidden");
+      rankEmptyState.classList.remove("hidden");
+      return;
+    }
+
+    rankResultsTitle.textContent = `Top Ranked Papers for "${topic}"`;
+    rankStats.innerHTML = `
+      <span>Found ${data.meta.count} papers</span>
+      <span>•</span>
+      <span>Showing top ${data.results.length}</span>
+      <span>•</span>
+      <span>${data.llm_enabled ? 'AI Evaluation: ON' : 'AI Evaluation: OFF'}</span>
+    `;
+
+    renderRankedPapers(data.results);
+  } catch (error) {
+    rankLoading.classList.add("hidden");
+    rankResults.classList.add("hidden");
+    rankEmptyState.classList.remove("hidden");
+    rankEmptyState.textContent = `Error: ${error.message}. Please try again.`;
+  }
+}
+
+function renderRankedPapers(papers) {
+  rankPapersList.innerHTML = "";
+
+  papers.forEach((paper) => {
+    const card = document.createElement("div");
+    card.className = "rank-paper-card";
+
+    // Rank badge
+    const rankBadge = document.createElement("div");
+    rankBadge.className = "rank-badge-large";
+    rankBadge.textContent = `#${paper.rank}`;
+
+    // Integrity badge
+    const integrityBadge = document.createElement("span");
+    const riskLevel = paper.integrity?.risk_level || "MEDIUM";
+    integrityBadge.className = `integrity-badge integrity-${riskLevel.toLowerCase()}`;
+    integrityBadge.textContent = riskLevel;
+
+    // Score
+    const scoreDiv = document.createElement("div");
+    scoreDiv.className = "rank-score";
+    scoreDiv.innerHTML = `
+      <div class="rank-score-value">${paper.final_score?.toFixed(1) || "N/A"}</div>
+      <div class="rank-score-label">Quality Score</div>
+    `;
+
+    // Title
+    const title = document.createElement("h3");
+    title.className = "rank-paper-title";
+    title.textContent = paper.title || "Untitled";
+
+    // Authors and year
+    const meta = document.createElement("div");
+    meta.className = "rank-paper-meta";
+    const authors = paper.authors && paper.authors.length > 0 
+      ? paper.authors.slice(0, 3).join(", ") + (paper.authors.length > 3 ? " et al." : "")
+      : "Unknown authors";
+    meta.textContent = `${authors} (${paper.year || "N/A"})`;
+
+    // Venue
+    const venue = document.createElement("div");
+    venue.className = "rank-paper-venue";
+    venue.textContent = paper.venue || "Unknown venue";
+
+    // Citations
+    const citations = document.createElement("div");
+    citations.className = "rank-paper-citations";
+    citations.innerHTML = `<strong>${paper.cited_by_count || 0}</strong> citations`;
+
+    // Explanation
+    const explanation = document.createElement("div");
+    explanation.className = "rank-explanation-box";
+    explanation.innerHTML = `<strong>Why this rank:</strong> ${paper.rank_explanation || "No explanation available"}`;
+
+    // Integrity flags
+    if (paper.integrity && paper.integrity.flags && paper.integrity.flags.length > 0) {
+      const flagsDiv = document.createElement("div");
+      flagsDiv.className = "rank-integrity-flags";
+      flagsDiv.innerHTML = `<strong>⚠️ Integrity Issues:</strong> ${paper.integrity.flags.join(", ")}`;
+      card.appendChild(flagsDiv);
+    }
+
+    // LLM scores - with better messaging
+    if (paper.llm) {
+      const llmScores = document.createElement("div");
+      llmScores.className = "rank-llm-scores";
+      
+      // Check if LLM evaluation actually ran or if these are default scores
+      const isDefaultScore = paper.llm.quality_score === 5 && 
+                            paper.llm.credibility_score === 5 && 
+                            paper.llm.relevance_score === 5;
+      
+      const isCreditIssue = paper.llm.reason && 
+                           (paper.llm.reason.includes("credit") || 
+                            paper.llm.reason.includes("quota") || 
+                            paper.llm.reason.includes("balance") ||
+                            paper.llm.reason.includes("PRO"));
+      
+      if (isDefaultScore && isCreditIssue) {
+        llmScores.innerHTML = `
+          <div class="rank-llm-disabled rank-llm-credit-warning">
+            <span class="rank-llm-icon">⚠️</span>
+            <span class="rank-llm-message">${escapeHtml(paper.llm.reason)}</span>
+          </div>
+          <div class="rank-llm-note">Papers are ranked by citations, recency, and integrity analysis. Visit <a href="https://huggingface.co/pricing" target="_blank">HuggingFace Pricing</a> to add credits.</div>
+        `;
+      } else if (isDefaultScore) {
+        llmScores.innerHTML = `
+          <div class="rank-llm-disabled">
+            <span class="rank-llm-icon">ℹ️</span>
+            <span class="rank-llm-message">AI Evaluation: ${escapeHtml(paper.llm.reason)}</span>
+          </div>
+          <div class="rank-llm-note">Papers are ranked by citations, recency, and integrity analysis.</div>
+        `;
+      } else {
+        llmScores.innerHTML = `
+          <div class="rank-llm-score">
+            <span class="rank-llm-label">Quality:</span>
+            <span class="rank-llm-value">${paper.llm.quality_score}/10</span>
+          </div>
+          <div class="rank-llm-score">
+            <span class="rank-llm-label">Credibility:</span>
+            <span class="rank-llm-value">${paper.llm.credibility_score}/10</span>
+          </div>
+          <div class="rank-llm-score">
+            <span class="rank-llm-label">Relevance:</span>
+            <span class="rank-llm-value">${paper.llm.relevance_score}/10</span>
+          </div>
+        `;
+        
+        if (paper.llm.suspicious) {
+          const suspiciousWarning = document.createElement("div");
+          suspiciousWarning.className = "rank-suspicious-warning";
+          suspiciousWarning.textContent = "⚠️ Flagged as potentially suspicious";
+          llmScores.appendChild(suspiciousWarning);
+        }
+      }
+      
+      card.appendChild(llmScores);
+    }
+
+    // DOI link
+    if (paper.doi) {
+      const doiLink = document.createElement("a");
+      doiLink.href = paper.doi.startsWith("http") ? paper.doi : `https://doi.org/${paper.doi}`;
+      doiLink.target = "_blank";
+      doiLink.className = "rank-doi-link";
+      doiLink.textContent = "View Paper →";
+      card.appendChild(doiLink);
+    }
+
+    // Assemble card
+    card.appendChild(rankBadge);
+    card.appendChild(integrityBadge);
+    card.appendChild(scoreDiv);
+    card.appendChild(title);
+    card.appendChild(meta);
+    card.appendChild(venue);
+    card.appendChild(citations);
+    card.appendChild(explanation);
+
+    rankPapersList.appendChild(card);
+  });
+}
+
+// Event listeners for rank tab
+rankSearchBtn?.addEventListener("click", searchPapersByTopic);
+rankTopicInput?.addEventListener("keypress", (e) => {
+  if (e.key === "Enter") searchPapersByTopic();
+});
+
+// Tab/Icon navigation switching
+document.querySelectorAll(".icon-nav-btn[data-tab]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".icon-nav-btn[data-tab]").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    const tab = btn.dataset.tab;
+    if (tab === "search") showSearch();
+    else if (tab === "rank") showRank();
+    else if (tab === "saved") showSaved();
+    else if (tab === "compare") showCompareTab();
+    else if (tab === "batch") showBatch();
+    else if (tab === "dashboard") showDashboard();
+  });
 });

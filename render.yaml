@@ -1,8 +1,0 @@
-services:
-  - type: web
-    name: publication-analyzer
-    env: python
-    plan: free
-    region: oregon
-    buildCommand: pip install -r Publication_Analyzer/Publication_Analyzer/requirements.txt
-    startCommand: cd Publication_Analyzer/Publication_Analyzer && gunicorn backend.main:app -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT

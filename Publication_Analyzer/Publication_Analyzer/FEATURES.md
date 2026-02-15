@@ -14,7 +14,7 @@
 - **Chat about comparison** — Follow-up Q&A about the faculty comparison in the same modal.
 
 ## Data & export
-- **6+ data sources** — OpenAlex, Semantic Scholar, ORCID, CrossRef, OpenAIRE, Europe PMC (see footer).
+- **7 data sources** — OpenAlex, Semantic Scholar, ORCID, CrossRef, OpenAIRE, Europe PMC, Google Scholar (see footer).
 - **Saved list** — Save authors and papers locally.
 - **Batch summary** — Paste up to 50 names; get a table (matched name, institution, pubs, citations, h-index, i10).
 - **Export CSV** — Export saved items and batch results.

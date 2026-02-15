@@ -24,6 +24,7 @@ class Config:
     CROSSREF_BASE = "https://api.crossref.org"
     OPENAIRE_BASE = "https://api.openaire.eu"
     EUROPE_PMC_BASE = "https://www.ebi.ac.uk/europepmc/webservices/rest"
+    GOOGLE_SCHOLAR_BASE = "https://scholar.google.com"
     HF_ROUTER_URL = "https://router.huggingface.co/v1/chat/completions"
     
     # Hugging Face configuration

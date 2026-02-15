@@ -1,0 +1,235 @@
+/* Clean Modern UI - Publication Analyzer */
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #2d2d2d 0%, #4a4a4a 50%, #8b7355 100%);
+  color: #ffffff;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Icon Navigation - Right Side */
+.icon-nav {
+  position: fixed;
+  right: 20px;
+  top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  z-index: 1000;
+}
+
+.icon-nav-btn {
+  width: 60px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.9);
+  border: none;
+  border-radius: 20px;
+  color: #666;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.icon-nav-btn:hover {
+  background: rgba(255, 255, 255, 1);
+  transform: translateX(-4px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+}
+
+.icon-nav-btn.active {
+  background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
+  color: white;
+}
+
+.icon-nav-btn svg {
+  width: 24px;
+  height: 24px;
+}
+
+/* Tooltip */
+.icon-nav-btn::before {
+  content: attr(data-tooltip);
+  position: absolute;
+  right: 75px;
+  padding: 8px 16px;
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+.icon-nav-btn:hover::before {
+  opacity: 1;
+}
+
+.icon-nav-spacer {
+  height: 40px;
+}
+
+/* Header - Hidden on search page */
+.header {
+  display: none;
+}
+
+/* Main Content */
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Search Section - Full Screen Hero */
+.search-section {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+}
+
+.search-hero {
+  text-align: center;
+  max-width: 800px;
+  width: 100%;
+}
+
+.search-hero-title {
+  font-size: 3.5rem;
+  font-weight: 700;
+  color: white;
+  margin-bottom: 48px;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.search-box-wrap {
+  display: flex;
+  align-items: stretch;
+  background: white;
+  border-radius: 50px;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  transition: all 0.3s ease;
+}
+
+.search-box-wrap:focus-within {
+  box-shadow: 0 25px 70px rgba(0, 0, 0, 0.4);
+  transform: translateY(-2px);
+}
+
+.search-input-hero {
+  flex: 1;
+  padding: 24px 32px;
+  background: none;
+  border: none;
+  color: #2d2d2d;
+  font-size: 1.125rem;
+  font-weight: 400;
+}
+
+.search-input-hero::placeholder {
+  color: #999;
+}
+
+.search-input-hero:focus {
+  outline: none;
+}
+
+.search-btn-hero {
+  padding: 24px 48px;
+  background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
+  color: white;
+  border: none;
+  font-size: 1.125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  white-space: nowrap;
+}
+
+.search-btn-hero:hover {
+  background: linear-gradient(135deg, #ff8c42 0%, #ff6b35 100%);
+}
+
+.search-btn-hero:active {
+  transform: scale(0.98);
+}
+
+/* Other Sections - Show header */
+.results-section,
+.profile-section,
+.saved-section,
+.batch-section,
+.dashboard-section,
+.rank-section {
+  background: #fafafa;
+  min-height: 100vh;
+  padding: 40px;
+}
+
+.results-section:not(.hidden) ~ .header,
+.profile-section:not(.hidden) ~ .header,
+.saved-section:not(.hidden) ~ .header,
+.batch-section:not(.hidden) ~ .header,
+.dashboard-section:not(.hidden) ~ .header,
+.rank-section:not(.hidden) ~ .header {
+  display: block;
+}
+
+/* Hidden utility */
+.hidden {
+  display: none !important;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .icon-nav {
+    right: 10px;
+    top: 10px;
+    gap: 12px;
+  }
+  
+  .icon-nav-btn {
+    width: 50px;
+    height: 50px;
+  }
+  
+  .search-hero-title {
+    font-size: 2.5rem;
+  }
+  
+  .search-input-hero {
+    padding: 20px 24px;
+    font-size: 1rem;
+  }
+  
+  .search-btn-hero {
+    padding: 20px 32px;
+    font-size: 1rem;
+  }
+}

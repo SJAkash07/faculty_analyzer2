@@ -31,6 +31,23 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 import httpx
 
+# Import integrity analysis services
+from backend.services.integrity_analyzer import analyze_paper_integrity, batch_analyze_integrity
+from backend.services.llm_quality import evaluate_paper_llm, batch_evaluate_llm
+from backend.services.ranking_engine import rank_papers, get_top_papers, get_papers_by_risk
+
+# Import scholarly for Google Scholar (lazy import to avoid startup delay)
+try:
+    from scholarly import scholarly
+    GOOGLE_SCHOLAR_AVAILABLE = True
+    # Check if user wants to disable Google Scholar
+    if os.environ.get("USE_GOOGLE_SCHOLAR", "true").lower() == "false":
+        GOOGLE_SCHOLAR_AVAILABLE = False
+        print("Google Scholar disabled by configuration")
+except ImportError:
+    GOOGLE_SCHOLAR_AVAILABLE = False
+    scholarly = None
+
 # New Hugging Face router (api-inference.huggingface.co is deprecated)
 HF_ROUTER_URL = "https://router.huggingface.co/v1/chat/completions"
 # Default: HF Inference provider (often enabled by default). Override with HF_SUMMARY_MODEL env.
@@ -63,6 +80,12 @@ def _log_hf_config():
         print("AI (Hugging Face): enabled — summaries, compare, and chat will work.")
     else:
         print("AI (Hugging Face): not set — set HF_TOKEN in this terminal before starting for summaries/compare/chat.")
+    
+    # Log Google Scholar status
+    if GOOGLE_SCHOLAR_AVAILABLE:
+        print("Google Scholar: enabled — search will use Google Scholar with profile photos.")
+    else:
+        print("Google Scholar: not available — install with: pip install scholarly>=1.7.0")
 
 
 def _hf_token() -> str | None:
@@ -88,33 +111,272 @@ async def get_config():
 
 @app.get("/api/search")
 async def search_authors(q: str = Query(..., min_length=2)):
-    """Search authors by name. Returns a list of matching faculty (LinkedIn-style)."""
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        r = await client.get(
-            f"{OPENALEX_BASE}/authors",
-            params={"search": q, "per_page": 25},
-        )
-        r.raise_for_status()
-        data = r.json()
+    """
+    Search authors by name using Google Scholar (primary) with OpenAlex fallback.
+    Returns a list of matching faculty with profile photos and detailed info.
+    """
     results = []
-    for author in data.get("results", []):
-        inst = (author.get("last_known_institutions") or [None])[0]
-        results.append({
-            "id": author.get("id", "").replace("https://openalex.org/", ""),
-            "display_name": author.get("display_name", ""),
-            "works_count": author.get("works_count", 0),
-            "cited_by_count": author.get("cited_by_count", 0),
-            "h_index": (author.get("summary_stats") or {}).get("h_index"),
-            "institution": inst.get("display_name") if inst else None,
-            "country_code": inst.get("country_code") if inst else None,
-        })
-    return {"query": q, "count": len(results), "results": results}
+    
+    # Try Google Scholar first (if available)
+    if GOOGLE_SCHOLAR_AVAILABLE:
+        try:
+            gs_results = await _search_google_scholar_multiple(q, limit=10)
+            
+            if gs_results:
+                # Format Google Scholar results
+                for author in gs_results:
+                    results.append({
+                        "id": author.get("scholar_id", ""),
+                        "display_name": author.get("name", ""),
+                        "works_count": None,  # Not available in search
+                        "cited_by_count": author.get("citations", 0),
+                        "h_index": author.get("h_index"),
+                        "i10_index": author.get("i10_index"),
+                        "institution": author.get("affiliation"),
+                        "country_code": None,
+                        "photo_url": author.get("photo_url"),
+                        "email": author.get("email"),
+                        "interests": author.get("interests", []),
+                        "profile_url": author.get("profile_url"),
+                        "source": "Google Scholar",
+                    })
+                
+                return {"query": q, "count": len(results), "results": results, "source": "Google Scholar"}
+        except Exception:
+            pass  # Fall through to OpenAlex
+    
+    # Fallback to OpenAlex if Google Scholar fails or is unavailable
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.get(
+                f"{OPENALEX_BASE}/authors",
+                params={"search": q, "per_page": 25},
+            )
+            r.raise_for_status()
+            data = r.json()
+        
+        for author in data.get("results", []):
+            inst = (author.get("last_known_institutions") or [None])[0]
+            results.append({
+                "id": author.get("id", "").replace("https://openalex.org/", ""),
+                "display_name": author.get("display_name", ""),
+                "works_count": author.get("works_count", 0),
+                "cited_by_count": author.get("cited_by_count", 0),
+                "h_index": (author.get("summary_stats") or {}).get("h_index"),
+                "i10_index": (author.get("summary_stats") or {}).get("i10_index"),
+                "institution": inst.get("display_name") if inst else None,
+                "country_code": inst.get("country_code") if inst else None,
+                "photo_url": None,  # OpenAlex doesn't provide photos
+                "email": None,
+                "interests": [],
+                "profile_url": author.get("id", ""),
+                "source": "OpenAlex",
+            })
+        
+        return {"query": q, "count": len(results), "results": results, "source": "OpenAlex"}
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
+
+
+@app.get("/api/search/papers")
+async def search_papers_by_topic(
+    topic: str = Query(..., min_length=2, description="Research topic or keywords"),
+    per_page: int = Query(25, ge=1, le=100, description="Results per page"),
+    page: int = Query(1, ge=1, description="Page number"),
+    year_from: int | None = Query(None, ge=1900, le=2100, description="Filter by start year"),
+    year_to: int | None = Query(None, ge=2100, description="Filter by end year"),
+    enable_llm: bool = Query(True, description="Enable LLM quality evaluation"),
+    enable_integrity: bool = Query(True, description="Enable integrity analysis"),
+):
+    """
+    Search research papers by topic with integrity analysis and smart ranking.
+    
+    This endpoint allows users to search for papers on any topic and get ranked results
+    based on quality, integrity, citations, and relevance.
+    
+    Example: /api/search/papers?topic=machine learning&per_page=10
+    """
+    # Search OpenAlex for papers matching the topic
+    filters = []
+    if year_from is not None:
+        filters.append(f"from_publication_date:{year_from}-01-01")
+    if year_to is not None:
+        filters.append(f"to_publication_date:{year_to}-12-31")
+    
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            # Use title and abstract search for more precise matching
+            # This focuses on papers where the topic appears in title or abstract
+            filter_parts = [f"title_and_abstract.search:{topic}"]
+            
+            # Add year filters if provided
+            if year_from is not None:
+                filter_parts.append(f"from_publication_date:{year_from}-01-01")
+            if year_to is not None:
+                filter_parts.append(f"to_publication_date:{year_to}-12-31")
+            
+            params = {
+                "filter": ",".join(filter_parts),
+                "per_page": per_page,
+                "page": page,
+                "sort": "cited_by_count:desc",  # Sort by citations for quality
+            }
+            
+            r = await client.get(f"{OPENALEX_BASE}/works", params=params)
+            r.raise_for_status()
+            data = r.json()
+        
+        meta = data.get("meta", {})
+        works = []
+        
+        # Parse works from OpenAlex
+        for w in data.get("results", []):
+            loc = w.get("primary_location") or {}
+            src = loc.get("source") or {}
+            
+            # Get abstract if available
+            abstract_inv = w.get("abstract_inverted_index")
+            abstract = ""
+            if isinstance(abstract_inv, dict):
+                abstract = _abstract_from_inverted_index(abstract_inv)
+            
+            # Get authors
+            authors = []
+            for auth in (w.get("authorships") or [])[:5]:  # Limit to first 5 authors
+                author_info = auth.get("author") or {}
+                if author_info.get("display_name"):
+                    authors.append(author_info.get("display_name"))
+            
+            works.append({
+                "id": (w.get("id") or "").replace("https://openalex.org/", ""),
+                "title": w.get("title", ""),
+                "abstract": abstract[:500] if abstract else "",  # Limit abstract length
+                "year": w.get("publication_year"),
+                "publication_year": w.get("publication_year"),
+                "publication_date": w.get("publication_date"),
+                "cited_by_count": w.get("cited_by_count", 0),
+                "doi": (w.get("ids") or {}).get("doi"),
+                "type": w.get("type"),
+                "venue": src.get("display_name"),
+                "authors": authors,
+                "is_oa": (w.get("open_access") or {}).get("is_oa"),
+                "open_access_status": (w.get("open_access") or {}).get("oa_status"),
+            })
+        
+        if not works:
+            return {
+                "query": topic,
+                "results": [],
+                "meta": meta,
+                "analysis_enabled": False,
+            }
+        
+        # Run integrity analysis if enabled
+        if enable_integrity:
+            integrity_results = await batch_analyze_integrity(works)
+            for paper, integrity in zip(works, integrity_results):
+                paper["integrity"] = integrity
+        else:
+            for paper in works:
+                paper["integrity"] = {
+                    "integrity_score": 50,
+                    "risk_level": "MEDIUM",
+                    "flags": ["Analysis disabled"],
+                }
+        
+        # Run LLM evaluation if enabled and token available
+        if enable_llm and _hf_token():
+            llm_results = await batch_evaluate_llm(works, query=topic, max_concurrent=3)
+            for paper, llm in zip(works, llm_results):
+                paper["llm"] = llm
+        else:
+            for paper in works:
+                paper["llm"] = {
+                    "quality_score": 5,
+                    "credibility_score": 5,
+                    "relevance_score": 5,
+                    "suspicious": False,
+                    "reason": "LLM evaluation disabled or unavailable",
+                }
+        
+        # Rank papers using smart ranking engine
+        # Note: No author data for topic search, so author reputation will be neutral
+        ranked_works = rank_papers(works, author=None, query=topic)
+        
+        return {
+            "query": topic,
+            "results": ranked_works,
+            "meta": {
+                "page": meta.get("page", 1),
+                "per_page": meta.get("per_page", per_page),
+                "count": meta.get("count", 0),
+            },
+            "analysis_enabled": enable_integrity,
+            "llm_enabled": enable_llm and _hf_token() is not None,
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 
 
 @app.get("/api/author/{author_id}")
 async def get_author(author_id: str):
-    """Get a single author's profile (for the profile header)."""
-    aid = author_id if author_id.startswith("A") else f"A{author_id}"
+    """
+    Get a single author's profile.
+    Supports both Google Scholar IDs and OpenAlex IDs.
+    """
+    # Check if it's a Google Scholar ID (doesn't start with 'A')
+    if not author_id.startswith("A") and GOOGLE_SCHOLAR_AVAILABLE:
+        try:
+            # Fetch from Google Scholar
+            import asyncio
+            
+            loop = asyncio.get_event_loop()
+            
+            def _get_scholar_profile():
+                try:
+                    from scholarly import scholarly
+                    author = scholarly.search_author_id(author_id)
+                    if not author:
+                        return None
+                    author_filled = scholarly.fill(author, sections=['basics', 'indices', 'publications'])
+                    
+                    return {
+                        "id": author_filled.get('scholar_id'),
+                        "display_name": author_filled.get('name'),
+                        "display_name_alternatives": [],
+                        "works_count": len(author_filled.get('publications', [])),
+                        "cited_by_count": author_filled.get('citedby', 0),
+                        "summary_stats": {
+                            "h_index": author_filled.get('hindex'),
+                            "i10_index": author_filled.get('i10index'),
+                        },
+                        "orcid": None,
+                        "last_known_institutions": [
+                            {"display_name": author_filled.get('affiliation'), "country_code": None}
+                        ] if author_filled.get('affiliation') else [],
+                        "works_api_url": None,
+                        "photo_url": author_filled.get('url_picture'),
+                        "email": author_filled.get('email'),
+                        "interests": author_filled.get('interests', []),
+                        "source": "Google Scholar",
+                    }
+                except Exception:
+                    return None
+            
+            result = await asyncio.wait_for(
+                loop.run_in_executor(None, _get_scholar_profile),
+                timeout=20.0
+            )
+            
+            if result:
+                return result
+        except Exception:
+            pass  # Fall through to OpenAlex
+    
+    # Fallback to OpenAlex
+    aid = author_id if author_id.startswith('A') else f'A{author_id}'
     async with httpx.AsyncClient(timeout=15.0) as client:
         r = await client.get(f"{OPENALEX_BASE}/authors/{aid}")
         if r.status_code == 404:
@@ -135,6 +397,10 @@ async def get_author(author_id: str):
             for i in insts
         ],
         "works_api_url": author.get("works_api_url"),
+        "photo_url": None,
+        "email": None,
+        "interests": [],
+        "source": "OpenAlex",
     }
 
 
@@ -198,6 +464,130 @@ async def get_author_works(
             "per_page": meta.get("per_page", 25),
             "count": meta.get("count", 0),
         },
+    }
+
+
+@app.get("/api/author/{author_id}/works/ranked")
+async def get_author_works_ranked(
+    author_id: str,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(25, ge=1, le=100),
+    year_from: int | None = Query(None, ge=1900, le=2100),
+    year_to: int | None = Query(None, ge=1900, le=2100),
+    min_citations: int | None = Query(None, ge=0),
+    enable_llm: bool = Query(True, description="Enable LLM quality evaluation"),
+    query: str | None = Query(None, description="Search query for relevance scoring"),
+):
+    """
+    Get publications with integrity analysis and smart ranking.
+    Returns papers sorted by quality score combining citations, integrity, and LLM evaluation.
+    """
+    # Fetch author info for reputation scoring
+    aid = author_id if author_id.startswith("A") else f"A{author_id}"
+    
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            author_response = await client.get(f"{OPENALEX_BASE}/authors/{aid}")
+            author_response.raise_for_status()
+            author_data = author_response.json()
+    except Exception:
+        author_data = None
+    
+    # Fetch works (same as regular endpoint)
+    filters = [f"author.id:{aid}"]
+    if year_from is not None:
+        filters.append(f"from_publication_date:{year_from}-01-01")
+    if year_to is not None:
+        filters.append(f"to_publication_date:{year_to}-12-31")
+    if min_citations is not None and min_citations > 0:
+        filters.append(f"cited_by_count:>={min_citations}")
+    
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        r = await client.get(
+            f"{OPENALEX_BASE}/works",
+            params={
+                "filter": ",".join(filters),
+                "page": page,
+                "per_page": per_page,
+                "sort": "cited_by_count:desc",  # Initial sort by citations
+            },
+        )
+        if r.status_code == 404:
+            raise HTTPException(status_code=404, detail="Not found")
+        r.raise_for_status()
+        data = r.json()
+    
+    meta = data.get("meta", {})
+    works = []
+    
+    for w in data.get("results", []):
+        loc = w.get("primary_location") or {}
+        src = loc.get("source") or {}
+        
+        # Get authors
+        authors = []
+        for auth in (w.get("authorships") or [])[:5]:  # Limit to first 5 authors
+            author_info = auth.get("author") or {}
+            if author_info.get("display_name"):
+                authors.append(author_info.get("display_name"))
+        
+        works.append({
+            "id": (w.get("id") or "").replace("https://openalex.org/", ""),
+            "title": w.get("title", ""),
+            "year": w.get("publication_year"),
+            "publication_year": w.get("publication_year"),
+            "publication_date": w.get("publication_date"),
+            "cited_by_count": w.get("cited_by_count", 0),
+            "doi": (w.get("ids") or {}).get("doi"),
+            "type": w.get("type"),
+            "venue": src.get("display_name"),
+            "authors": authors,
+            "is_oa": (w.get("open_access") or {}).get("is_oa"),
+            "open_access_status": (w.get("open_access") or {}).get("oa_status"),
+        })
+    
+    if not works:
+        return {
+            "results": [],
+            "meta": meta,
+            "analysis_enabled": True,
+        }
+    
+    # Run integrity analysis (batch for efficiency)
+    integrity_results = await batch_analyze_integrity(works)
+    
+    # Attach integrity results
+    for paper, integrity in zip(works, integrity_results):
+        paper["integrity"] = integrity
+    
+    # Run LLM evaluation if enabled and token available
+    if enable_llm and _hf_token():
+        llm_results = await batch_evaluate_llm(works, query=query, max_concurrent=3)
+        for paper, llm in zip(works, llm_results):
+            paper["llm"] = llm
+    else:
+        # Add default LLM scores
+        for paper in works:
+            paper["llm"] = {
+                "quality_score": 5,
+                "credibility_score": 5,
+                "relevance_score": 5,
+                "suspicious": False,
+                "reason": "LLM evaluation disabled or unavailable",
+            }
+    
+    # Rank papers using smart ranking engine
+    ranked_works = rank_papers(works, author=author_data, query=query)
+    
+    return {
+        "results": ranked_works,
+        "meta": {
+            "page": meta.get("page", 1),
+            "per_page": meta.get("per_page", 25),
+            "count": meta.get("count", 0),
+        },
+        "analysis_enabled": True,
+        "llm_enabled": enable_llm and _hf_token() is not None,
     }
 
 
@@ -382,9 +772,129 @@ async def _fetch_europe_pmc(client: httpx.AsyncClient, name: str) -> dict | None
         return None
 
 
+async def _fetch_google_scholar(name: str) -> dict | None:
+    """Search Google Scholar for author profile and publications."""
+    if not GOOGLE_SCHOLAR_AVAILABLE:
+        return None
+    
+    try:
+        import asyncio
+        
+        loop = asyncio.get_event_loop()
+        
+        def _search_scholar():
+            try:
+                # Search for author
+                search_query = scholarly.search_author(name)
+                author = next(search_query, None)
+                
+                if not author:
+                    return None
+                
+                # Fill author details
+                author_filled = scholarly.fill(author, sections=['basics', 'indices', 'publications'])
+                
+                # Extract publications (limit to 5)
+                publications = []
+                for pub in (author_filled.get('publications', []) or [])[:5]:
+                    pub_data = {
+                        "title": pub.get('bib', {}).get('title'),
+                        "year": pub.get('bib', {}).get('pub_year'),
+                        "venue": pub.get('bib', {}).get('venue') or pub.get('bib', {}).get('journal'),
+                        "citations": pub.get('num_citations', 0),
+                    }
+                    if pub_data["title"]:
+                        publications.append(pub_data)
+                
+                return {
+                    "name": author_filled.get('name'),
+                    "affiliation": author_filled.get('affiliation'),
+                    "email": author_filled.get('email'),
+                    "interests": author_filled.get('interests', [])[:5],
+                    "citations": author_filled.get('citedby'),
+                    "h_index": author_filled.get('hindex'),
+                    "i10_index": author_filled.get('i10index'),
+                    "publications_count": len(author_filled.get('publications', [])),
+                    "sample_publications": publications,
+                    "url": author_filled.get('url_picture', '').replace('/citations?user=', '/citations?hl=en&user=').split('&')[0] if author_filled.get('scholar_id') else f"https://scholar.google.com/citations?hl=en&user={author_filled.get('scholar_id', '')}",
+                    "scholar_id": author_filled.get('scholar_id'),
+                    "source": "Google Scholar",
+                }
+            except (StopIteration, Exception):
+                return None
+        
+        # Run with timeout
+        result = await asyncio.wait_for(
+            loop.run_in_executor(None, _search_scholar),
+            timeout=15.0
+        )
+        return result
+        
+    except (asyncio.TimeoutError, Exception):
+        return None
+
+
+async def _search_google_scholar_multiple(name: str, limit: int = 10) -> list[dict]:
+    """Search Google Scholar for multiple authors matching the name."""
+    if not GOOGLE_SCHOLAR_AVAILABLE:
+        return []
+    
+    try:
+        import asyncio
+        
+        loop = asyncio.get_event_loop()
+        
+        def _search_multiple():
+            try:
+                results = []
+                search_query = scholarly.search_author(name)
+                
+                # Get multiple results
+                for i, author in enumerate(search_query):
+                    if i >= limit:
+                        break
+                    
+                    try:
+                        # Fill basic info only (faster)
+                        author_filled = scholarly.fill(author, sections=['basics', 'indices'])
+                        
+                        # Extract profile photo URL
+                        photo_url = author_filled.get('url_picture')
+                        
+                        result = {
+                            "scholar_id": author_filled.get('scholar_id'),
+                            "name": author_filled.get('name'),
+                            "affiliation": author_filled.get('affiliation'),
+                            "email": author_filled.get('email'),
+                            "interests": author_filled.get('interests', [])[:5],
+                            "citations": author_filled.get('citedby', 0),
+                            "h_index": author_filled.get('hindex'),
+                            "i10_index": author_filled.get('i10index'),
+                            "photo_url": photo_url,
+                            "profile_url": f"https://scholar.google.com/citations?hl=en&user={author_filled.get('scholar_id', '')}",
+                        }
+                        results.append(result)
+                    except Exception:
+                        continue
+                
+                return results
+            except (StopIteration, Exception):
+                return []
+        
+        # Run with timeout
+        results = await asyncio.wait_for(
+            loop.run_in_executor(None, _search_multiple),
+            timeout=30.0
+        )
+        return results
+        
+    except (asyncio.TimeoutError, Exception):
+        return []
+
+
 @app.get("/api/author/{author_id}/external-sources")
 async def get_author_external_sources(author_id: str):
-    """Fetch data from 5 external sources: Semantic Scholar, ORCID, CrossRef, OpenAIRE, Europe PMC."""
+    """Fetch data from 6 external sources: Semantic Scholar, ORCID, CrossRef, OpenAIRE, Europe PMC, Google Scholar."""
     aid = author_id if author_id.startswith("A") else f"A{author_id}"
     async with httpx.AsyncClient(timeout=15.0) as client:
         r = await client.get(f"{OPENALEX_BASE}/authors/{aid}")
@@ -397,12 +907,13 @@ async def get_author_external_sources(author_id: str):
 
     import asyncio
     async with httpx.AsyncClient(timeout=12.0) as client:
-        sem, orc, cr, op, ep = await asyncio.gather(
+        sem, orc, cr, op, ep, gs = await asyncio.gather(
             _fetch_semantic_scholar(client, name),
             _fetch_orcid(client, orcid or ""),
             _fetch_crossref(client, name),
             _fetch_openaire(client, name),
             _fetch_europe_pmc(client, name),
+            _fetch_google_scholar(name),
         )
     return {
         "semantic_scholar": sem,
@@ -410,12 +921,14 @@ async def get_author_external_sources(author_id: str):
         "crossref": cr,
         "openaire": op,
         "europe_pmc": ep,
+        "google_scholar": gs,
         "sources_info": [
             {"id": "semantic_scholar", "name": "Semantic Scholar", "url": "https://www.semanticscholar.org", "description": "Papers & citations"},
             {"id": "orcid", "name": "ORCID", "url": "https://orcid.org", "description": "Researcher ID, employment, funding"},
             {"id": "crossref", "name": "CrossRef", "url": "https://www.crossref.org", "description": "DOI metadata & publications"},
             {"id": "openaire", "name": "OpenAIRE", "url": "https://explore.openaire.eu", "description": "Projects & grants (EU open science)"},
             {"id": "europe_pmc", "name": "Europe PMC", "url": "https://europepmc.org", "description": "Life sciences literature"},
+            {"id": "google_scholar", "name": "Google Scholar", "url": "https://scholar.google.com", "description": "Academic publications & citations"},
         ],
     }
 
