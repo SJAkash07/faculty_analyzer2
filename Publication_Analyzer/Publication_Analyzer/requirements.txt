@@ -3,4 +3,4 @@ uvicorn[standard]>=0.27.0
 httpx>=0.26.0
 python-dotenv>=1.0.0
 reportlab>=4.0.0
-
+gunicorn>=20.1.0
