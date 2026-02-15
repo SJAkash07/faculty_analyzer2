@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Publications Summary — Faculty Profiles</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+</head>
+<body data-theme="light">
+  <div class="app">
+    <header class="header">
+      <div class="header-inner">
+        <div>
+          <h1 class="logo">Publications Summary</h1>
+          <p class="tagline">Faculty profiles & assessment summaries for hiring, promotion & accreditation · OpenAlex</p>
+        </div>
+        <div class="header-tabs-row">
+          <nav class="main-tabs">
+            <button type="button" class="tab-btn active" data-tab="search">Search</button>
+            <button type="button" class="tab-btn" data-tab="saved">Saved</button>
+            <button type="button" class="tab-btn" data-tab="compare">Compare faculty</button>
+            <button type="button" class="tab-btn" data-tab="batch">Batch summary</button>
+            <button type="button" class="tab-btn" data-tab="dashboard">📊 Dashboard</button>
+          </nav>
+          <button type="button" class="theme-toggle" id="themeToggle" title="Toggle dark/light theme" aria-label="Toggle theme">Dark</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="main">
+      <section class="search-section" id="searchSection">
+        <div class="search-box-wrap">
+          <span class="search-icon" aria-hidden="true">⌕</span>
+          <input
+            type="search"
+            id="searchInput"
+            class="search-input"
+            placeholder="Search by faculty name (e.g. John Smith)"
+            autocomplete="off"
+          />
+          <button type="button" id="searchBtn" class="search-btn">Search</button>
+        </div>
+        <p class="search-hint">Enter a faculty name to find researchers. Click a name to view their publications; use <strong>Assessment Summary</strong> on any paper for an evaluation-oriented summary. Use the <strong>Compare faculty</strong> tab to compare two researchers' profiles.</p>
+      </section>
+
+      <section class="results-section hidden" id="resultsSection">
+        <div class="results-header">
+          <h2 id="resultsTitle">Researchers</h2>
+          <button type="button" id="backToSearch" class="back-btn">← New search</button>
+        </div>
+        <div class="results-list" id="resultsList"></div>
+        <div class="loading" id="resultsLoading">Loading…</div>
+        <div class="empty-state hidden" id="emptyState">No researchers found. Try a different name.</div>
+      </section>
+
+      <section class="profile-section hidden" id="profileSection">
+        <div class="profile-header-wrap">
+          <div class="profile-header" id="profileHeader"></div>
+          <button type="button" id="downloadPdfBtn" class="download-pdf-btn" title="Download accreditation report PDF">📄 Download PDF Report</button>
+        </div>
+        <div class="profile-stats" id="profileStats"></div>
+        
+        <div class="fingerprint-section" id="fingerprintSection">
+          <h3 class="fingerprint-title">Research Area Fingerprint</h3>
+          <p class="fingerprint-subtitle">Research distribution across publication types and topics</p>
+          <div class="fingerprint-container">
+            <canvas id="fingerprintChart"></canvas>
+          </div>
+          <div class="fingerprint-loading hidden" id="fingerprintLoading">Analyzing research areas...</div>
+        </div>
+        
+        <div class="works-toolbar">
+          <div class="works-filters">
+            <label>Sort by</label>
+            <select id="worksSortBy" class="works-select">
+              <option value="publication_date">Date</option>
+              <option value="cited_by_count">Citations</option>
+              <option value="title">Title</option>
+            </select>
+            <select id="worksSortOrder" class="works-select">
+              <option value="desc">Newest / Highest first</option>
+              <option value="asc">Oldest / Lowest first</option>
+            </select>
+            <label class="works-filter-label">Year</label>
+            <input type="number" id="worksYearFrom" class="works-input-num" placeholder="From" min="1900" max="2100" />
+            <input type="number" id="worksYearTo" class="works-input-num" placeholder="To" min="1900" max="2100" />
+            <label class="works-filter-label">Min citations</label>
+            <input type="number" id="worksMinCitations" class="works-input-num" placeholder="0" min="0" />
+            <button type="button" id="worksApplyFilters" class="back-btn">Apply</button>
+          </div>
+        </div>
+        <h3 class="papers-title">Research papers</h3>
+        <div class="works-list" id="worksList"></div>
+        <div class="loading" id="worksLoading">Loading publications…</div>
+        <div class="load-more-wrap hidden" id="loadMoreWrap">
+          <button type="button" id="loadMoreBtn" class="load-more-btn">Load more</button>
+        </div>
+        <div class="empty-works hidden" id="emptyWorks">No publications found.</div>
+        <div class="external-sources-wrap hidden" id="externalSourcesWrap">
+          <h3 class="papers-title">Data from other sources</h3>
+          <p class="external-sources-hint">Additional data from Semantic Scholar, ORCID, CrossRef, OpenAIRE (grants), and Europe PMC.</p>
+          <div class="external-sources-loading" id="externalSourcesLoading">Loading…</div>
+          <div class="external-sources-grid" id="externalSourcesGrid"></div>
+        </div>
+      </section>
+
+      <section class="saved-section hidden" id="savedSection">
+        <div class="saved-header">
+          <div class="saved-header-row">
+            <div>
+              <h2>Saved</h2>
+              <p class="saved-subtitle">Authors and papers you've saved for quick access</p>
+            </div>
+            <button type="button" id="exportSavedCsvBtn" class="back-btn">Export CSV</button>
+          </div>
+        </div>
+        <div class="saved-content" id="savedContent">
+          <div class="saved-grid">
+            <div class="saved-authors-block">
+              <h3 class="saved-block-title">
+                <span class="saved-icon">👤</span> Saved authors
+              </h3>
+              <div class="saved-authors-list" id="savedAuthorsList"></div>
+            </div>
+            <div class="saved-works-block">
+              <h3 class="saved-block-title">
+                <span class="saved-icon">📄</span> Saved papers
+              </h3>
+              <div class="saved-works-list" id="savedWorksList"></div>
+            </div>
+          </div>
+        </div>
+        <div class="empty-saved hidden" id="emptySaved">
+          <p class="empty-saved-icon">📚</p>
+          <p>No saved items yet.</p>
+          <p class="empty-saved-hint">Save authors from search results or papers from a faculty profile to access them here.</p>
+        </div>
+      </section>
+
+      <section class="batch-section hidden" id="batchSection">
+        <div class="saved-header">
+          <h2>Batch faculty summary</h2>
+          <p class="saved-subtitle">Paste a list of faculty names (one per line) to get a summary table for committees</p>
+        </div>
+        <div class="batch-input-wrap">
+          <textarea id="batchNamesInput" class="batch-textarea" placeholder="John Smith&#10;Jane Doe&#10;Anubhav Kumar&#10;... (one name per line, max 50)" rows="6"></textarea>
+          <button type="button" id="batchRunBtn" class="search-btn">Run batch</button>
+        </div>
+        <div class="batch-loading hidden" id="batchLoading">Looking up faculty…</div>
+        <div class="batch-result hidden" id="batchResult">
+          <div class="batch-table-wrap" id="batchTableWrap"></div>
+          <button type="button" id="batchExportCsvBtn" class="back-btn">Export CSV</button>
+        </div>
+        <p class="compare-modal-error hidden" id="batchError"></p>
+      </section>
+
+      <section class="dashboard-section hidden" id="dashboardSection">
+        <div class="dashboard-header">
+          <h2>Department Dashboard</h2>
+          <button type="button" id="backFromDashboard" class="back-btn">← Back</button>
+        </div>
+        
+        <div class="csv-upload-area" id="csvUploadArea">
+          <div class="csv-upload-box">
+            <div class="csv-upload-icon">📤</div>
+            <h3>Upload Faculty CSV</h3>
+            <p>Drag & drop a CSV file or click to select</p>
+            <input type="file" id="csvFileInput" accept=".csv,.txt" hidden />
+            <button type="button" id="csvPickBtn" class="download-pdf-btn">Choose CSV File</button>
+            <p class="csv-format-hint">Format: One name per line (CSV or TXT file). If you have Excel, save as CSV first.</p>
+          </div>
+        </div>
+
+        <div class="dashboard-stats hidden" id="dashboardStats">
+          <div class="dashboard-loading" id="dashboardLoading">Analyzing department...</div>
+          <div class="stats-grid hidden" id="statsGrid"></div>
+          <div class="dashboard-export">
+            <button type="button" id="exportDashboardBtn" class="download-pdf-btn">📊 Export Report</button>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <div class="modal-overlay hidden" id="compareModal" aria-hidden="true">
+      <div class="modal modal-compare" role="dialog" aria-labelledby="compareModalTitle">
+        <div class="modal-header">
+          <h3 id="compareModalTitle" class="modal-title">Compare faculty</h3>
+          <button type="button" class="modal-close" id="compareModalClose" aria-label="Close">×</button>
+        </div>
+        <div class="modal-body">
+          <p class="compare-hint-inline">Select two faculty to compare their profiles (publications, citations, h-index) and get an AI assessment.</p>
+          <div class="compare-faculty-select">
+            <div class="compare-faculty-slot">
+              <label>Faculty 1</label>
+              <div class="compare-slot-value" id="compareFaculty1Label">— Select —</div>
+              <div class="compare-slot-actions">
+                <button type="button" class="compare-pick-btn" data-slot="1" data-source="search">Search</button>
+                <button type="button" class="compare-pick-btn" data-slot="1" data-source="saved">Saved</button>
+              </div>
+            </div>
+            <div class="compare-faculty-slot">
+              <label>Faculty 2</label>
+              <div class="compare-slot-value" id="compareFaculty2Label">— Select —</div>
+              <div class="compare-slot-actions">
+                <button type="button" class="compare-pick-btn" data-slot="2" data-source="search">Search</button>
+                <button type="button" class="compare-pick-btn" data-slot="2" data-source="saved">Saved</button>
+              </div>
+            </div>
+          </div>
+          <div class="compare-picker-panel hidden" id="comparePickerPanel">
+            <div class="compare-picker-header">
+              <span id="comparePickerTitle">Select faculty</span>
+              <button type="button" class="compare-back-btn" id="compareClosePicker">← Back</button>
+            </div>
+            <div class="compare-picker-search hidden" id="comparePickerSearch">
+              <input type="search" id="compareSearchInput" class="search-input" placeholder="Search by name" />
+              <button type="button" id="compareSearchBtn" class="search-btn">Search</button>
+            </div>
+            <div class="compare-picker-list" id="comparePickerList"></div>
+          </div>
+          <button type="button" class="search-btn compare-run-btn hidden" id="compareRunBtn">Compare</button>
+          <p class="compare-loading-inline hidden" id="compareModalLoading">Generating assessment…</p>
+          <div class="compare-result hidden" id="compareResult">
+            <div class="compare-grid" id="compareGrid"></div>
+            <h4 class="compare-charts-title hidden" id="compareChartsTitle">Comparison charts</h4>
+            <div class="compare-charts hidden" id="compareCharts"></div>
+            <div class="compare-export-row">
+              <button type="button" id="comparePrintBtn" class="back-btn">Print / Save as PDF</button>
+            </div>
+            <div class="compare-assessment-wrap">
+              <h4 class="compare-assessment-title">Assessment</h4>
+              <div class="compare-assessment" id="compareAssessment"></div>
+            </div>
+            <div class="modal-chat-section compare-chat-section">
+              <h4 class="modal-chat-title">Ask about this comparison</h4>
+              <div class="modal-chat-messages" id="compareChatMessages"></div>
+              <div class="modal-chat-input-wrap">
+                <input type="text" id="compareChatInput" class="modal-chat-input" placeholder="Ask a question about the comparison…" />
+                <button type="button" id="compareChatSend" class="modal-chat-send">Send</button>
+              </div>
+            </div>
+          </div>
+          <p class="compare-modal-error hidden" id="compareModalError"></p>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-overlay hidden" id="summaryModal" aria-hidden="true">
+      <div class="modal" role="dialog" aria-labelledby="summaryModalTitle">
+        <div class="modal-header">
+          <h3 id="summaryModalTitle" class="modal-title">Assessment Summary</h3>
+          <button type="button" class="modal-close" id="summaryModalClose" aria-label="Close">×</button>
+        </div>
+        <div class="modal-body">
+          <p class="modal-loading" id="summaryModalLoading">Generating assessment summary…</p>
+          <div class="modal-summary-wrap hidden" id="summaryModalContentWrap">
+            <div id="summaryModalContent"></div>
+            <div class="modal-chat-section">
+              <h4 class="modal-chat-title">Ask about this paper</h4>
+              <div class="modal-chat-messages" id="chatMessages"></div>
+              <div class="modal-chat-input-wrap">
+                <input type="text" id="chatInput" class="modal-chat-input" placeholder="Ask a question about this research…" />
+                <button type="button" id="chatSendBtn" class="modal-chat-send">Send</button>
+              </div>
+            </div>
+          </div>
+          <p class="modal-error hidden" id="summaryModalError"></p>
+        </div>
+      </div>
+    </div>
+
+    <footer class="footer">
+      <p>Data from <a href="https://openalex.org" target="_blank" rel="noopener">OpenAlex</a>, <a href="https://www.semanticscholar.org" target="_blank" rel="noopener">Semantic Scholar</a>, <a href="https://orcid.org" target="_blank" rel="noopener">ORCID</a>, <a href="https://www.crossref.org" target="_blank" rel="noopener">CrossRef</a>, <a href="https://explore.openaire.eu" target="_blank" rel="noopener">OpenAIRE</a>, <a href="https://europepmc.org" target="_blank" rel="noopener">Europe PMC</a>. AI summaries via <a href="https://huggingface.co" target="_blank" rel="noopener">Hugging Face</a>. For academic use.</p>
+    </footer>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
