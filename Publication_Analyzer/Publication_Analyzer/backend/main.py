@@ -75,6 +75,12 @@ if FRONTEND_DIR.exists():
 
 @app.on_event("startup")
 def _log_hf_config():
+    print("=" * 50)
+    print("Faculty Analyzer Starting...")
+    print("=" * 50)
+    print(f"Frontend directory: {FRONTEND_DIR}")
+    print(f"Frontend exists: {FRONTEND_DIR.exists()}")
+    
     token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
     if token:
         print("AI (Hugging Face): enabled — summaries, compare, and chat will work.")
@@ -85,7 +91,11 @@ def _log_hf_config():
     if GOOGLE_SCHOLAR_AVAILABLE:
         print("Google Scholar: enabled — search will use Google Scholar with profile photos.")
     else:
-        print("Google Scholar: not available — install with: pip install scholarly>=1.7.0")
+        print("Google Scholar: not available — using OpenAlex only.")
+    
+    print("=" * 50)
+    print("Startup complete! App is ready.")
+    print("=" * 50)
 
 
 def _hf_token() -> str | None:
@@ -107,6 +117,18 @@ async def get_config():
     """Check if AI summary (Hugging Face) is configured. Does not expose the token."""
     token = _hf_token()
     return {"ai_summary_available": bool(token)}
+
+
+@app.get("/health")
+@app.get("/api/health")
+async def health_check():
+    """Health check endpoint for monitoring."""
+    return {
+        "status": "healthy",
+        "frontend_dir_exists": FRONTEND_DIR.exists(),
+        "google_scholar_available": GOOGLE_SCHOLAR_AVAILABLE,
+        "ai_available": bool(_hf_token())
+    }
 
 
 @app.get("/api/search")
